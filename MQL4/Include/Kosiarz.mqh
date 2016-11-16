@@ -15,6 +15,15 @@ enum ENUM_State
     ST_OrderOpened        // Otwart pozycja
 };
 
+
+enum ENUM_Patern
+{
+    PT_ALL,        // Wszystkie
+    PT_Szpulka     // Szpulka
+};
+
+
+
 /*
     SGT_None        -  Brak sygnalu
     SGT_FalseGap    -  Luka na otwarciu nastepnie pierwsza(e) swiece zgodnie z
@@ -32,19 +41,24 @@ enum ENUM_SignalType
 //| Input parameters
 //+------------------------------------------------------------------+
 input int         IN_Uid            = 1975;         // UID
+input int         IN_InitDeposit    = 1000;         // Depozyt poczatkowy
 input ENUM_Market IN_Market         = MARKET_FW20;  // Rynek
-input double      IN_Lots           = 0.1;         // Lot pozycji
+input double      IN_Lots           = 1;            // Lot pozycji
+input double      IN_ValToRisk      = 75;           // R% ryzyka zyskow
 input int         IN_OpenHour       = 8;            // Godz. startu strategii
-input int         IN_OpenMinutes    = 45;            // Min. startu strategii
+input int         IN_OpenMinutes    = 30;           // Min. startu strategii
 input int         IN_CloseHour      = 16;           // Godz. zamkniecia pozycji
 input int         IN_CloseMinutes   = 44;            // Min. amkniecia pozycji
-input int         IN_NoTrnHour      = 13;           // Max godz. otwarcia pozycji
-input int         IN_NoTrnMinutes   = 30;           // Max min. otwarcia pozycji
-input double      IN_TakeProfit     = 1.5;          // Profit to S/L
+input int         IN_NoTrnHour      = 11;           // Max godz. otwarcia pozycji
+input int         IN_NoTrnMinutes   = 15;           // Max min. otwarcia pozycji
+input double      IN_TakeProfit     = 2;            // Profit to S/L
+input double      IN_MinSL          = 10;           // Minimalny SL
+input double      IN_SLForTP        = 10;           // SL dla pozycji TP
 input int         IN_ShiftCandle    = 0;            // Ignorowane slopki
 input int         IN_FrameCandle    = 4;            // Ramka danych +1
 input int         IN_SlipPosition   = 3;            // Poslizg pozycji
 input bool        IN_Debug          = false;        // Dodatkow informacje
+input ENUM_Patern IN_Patern        =  PT_ALL;      // Patern
 
 //+------------------------------------------------------------------+
 //| Zmienne globalne

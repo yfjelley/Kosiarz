@@ -202,7 +202,7 @@ void closeAllOrders()
                     price = Bid;
                 }
 
-                while (!OrderClose(OrderTicket(),IN_Lots,price,IN_SlipPosition, Red))
+                while (!OrderClose(OrderTicket(),OrderLots(),price,IN_SlipPosition, Red))
                 {
                     Wait();
                     RefreshRates();
@@ -222,31 +222,87 @@ void closeAllOrders()
 
 double getBuyStop()
 {
-    return (frameMin - 1) * Point;
+    double sl = (frameMin - 1) * Point;
+    if ( dayCandle >= IN_FrameCandle )
+    {
+        sl = Ask - (frameMax - frameMin)/2;
+    }
+    else
+    {
+        sl = (frameMin - 1) * Point;
+    }
+
+    if (Ask - sl < IN_MinSL* Point)
+        sl = Ask - (IN_MinSL* Point);
+    sl = NormalizeDouble(sl, Digits);
+
+    return sl;
 }
 
 double getSellStop()
 {
-    return (frameMax + 1) * Point;
+    double sl = 0;
+    if ( dayCandle >= IN_FrameCandle )
+    {
+        sl = Bid + (frameMax - frameMin)/2;
+    }
+    else
+    {
+        sl = (frameMax + 1) * Point;
+    }
+
+    if ( sl - Bid  < IN_MinSL* Point)
+        sl = Bid + (IN_MinSL* Point);
+    sl = NormalizeDouble(sl, Digits);
+
+    return sl;
 }
+
+double getLots(double sl)
+{
+    double lt = IN_Lots;
+    double pointVal = MarketInfo(Symbol(),MODE_TICKVALUE) * IN_Lots;
+
+    if (AccountBalance() > IN_InitDeposit)
+    {
+        double toPlay  = (AccountBalance() - IN_InitDeposit) * (IN_ValToRisk/100);
+        double onPoint =  (toPlay / 3) * IN_Lots;
+
+           int newLots = onPoint / (pointVal*sl);
+        if ( newLots > 2 )
+        {
+            lt  = NormalizeDouble(newLots * IN_Lots,1);
+        }
+    }
+    return (lt);
+}
+
 
 void newSell()
 {
     sellIf = 0;
 
+    double sl = getSellStop();
+    double tp = Bid - ((sl-Bid) * IN_TakeProfit);
+    tp = NormalizeDouble(tp, Digits);
+    double lt = getLots(sl-Bid);
+
    info("Sprzedajemy Lots:" + DoubleToString(IN_Lots) + " " +
                      "Bid:" + DoubleToString(Bid) + " " +
+                     "TP:" + DoubleToString(tp) + " " +
                      "SL: " + DoubleToStr(getSellStop()));
 
-    int ticket=OrderSend(Symbol(), OP_SELL, IN_Lots, Bid, IN_SlipPosition, getSellStop(), 0,
+    int t1=OrderSend(Symbol(), OP_SELL, lt*2, Bid, IN_SlipPosition, sl, 0,
                      "Kasiarz", IN_Uid,0,Red);
+    int t2=OrderSend(Symbol(), OP_SELL, lt, Bid, IN_SlipPosition, sl, tp,
+                  "Kasiarz1", IN_Uid,0,Red);
 
-    if ( ticket<0 )
+    if ( t1<0 || t2<0)
     {
         Wait();
     }
 
-    if (ticket > 0)
+    if (t1 > 0 || t2 > 0)
     {
         setState(ST_OrderOpened);
     }
@@ -256,23 +312,81 @@ void newBuy()
 {
     buyIf = 0;
 
-   info("Kupujemy Lots:" + DoubleToString(IN_Lots) + " " +
+    double sl = getBuyStop();
+    double tp = Ask + ((Ask - sl) * IN_TakeProfit);
+    tp = NormalizeDouble(tp, Digits);
+    double lt = getLots(Ask-sl);
+
+    info("Kupujemy Lots:" + DoubleToString(IN_Lots) + " " +
                      "Ask:" + DoubleToString(Ask) + " " +
                      "SL: " + DoubleToStr(getBuyStop()));
 
-    int ticket=OrderSend(Symbol(), OP_BUY, IN_Lots, Ask, IN_SlipPosition, getBuyStop(), 0,
-                     "Kasiarz", IN_Uid, 0, Blue);
+    int t1=OrderSend(Symbol(), OP_BUY, lt*2, Ask, IN_SlipPosition, sl, 0,
+                "Kasiarz", IN_Uid, 0, Blue);
+    int t2=OrderSend(Symbol(), OP_BUY, lt, Ask, IN_SlipPosition, sl, tp,
+                "Kasiarz1", IN_Uid, 0, Blue);
 
-    if ( ticket<0 )
+    if ( t1<0 || t2<0)
     {
         Wait();
     }
 
-    if (ticket > 0)
+    if (t1 > 0 || t2 > 0)
     {
         setState(ST_OrderOpened);
     }
 }
+
+void checkSL()
+{
+    int    ticket   =   -1;
+    int    total    =   OrdersTotal();
+
+    for (int i = 0; i < total; i++)
+    {
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES) &&
+            OrderSymbol()       == Symbol() &&
+            OrderMagicNumber()  == IN_Uid)
+        {
+
+            double nsl = 0;
+
+            if (OrderType() == OP_BUY)
+            {
+                double sl = OrderOpenPrice() - OrderStopLoss();
+                double tp = OrderTakeProfit();
+                if (sl > 0 )
+                {
+                    double d = (todayMax - OrderOpenPrice());
+                    if ( d >= sl )
+                    {
+                        sl = OrderOpenPrice() + ((SymbolInfoInteger(Symbol(),SYMBOL_SPREAD) + 1 ) *Point );
+                        bool res=OrderModify(OrderTicket(),OrderOpenPrice(),sl,tp,0,Blue);
+                    }
+                }
+            }
+            else if (OrderType() == OP_SELL)
+            {
+                double tp = OrderTakeProfit();
+                double sl = OrderStopLoss() - OrderOpenPrice();
+                info("Nowe Min " + DoubleToString(Low[0]));
+                if (sl > 0 )
+                {
+                    double d = (OrderOpenPrice() - todayMin);
+/*                    info("Nowe Min " + DoubleToString(todayMin) +
+                         " d: "  + DoubleToString(d) +
+                          " sl "+  DoubleToString(sl));*/
+                    if ( d >= sl )
+                    {
+                        sl = OrderOpenPrice() - ((SymbolInfoInteger(Symbol(),SYMBOL_SPREAD) - 1 ) *Point );
+                        bool res=OrderModify(OrderTicket(),OrderOpenPrice(),sl,tp,0,Blue);
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 void commonCheck()
 {
@@ -280,13 +394,13 @@ void commonCheck()
     {
         if (frameMin == 0 || frameMin > Low[0])
         {
-            info("Nowe frame Min " + DoubleToString(Low[0]));
+            //info("Nowe frame Min " + DoubleToString(Low[0]));
             frameMin = Low[0];
         }
 
         if (frameMax == 0 || frameMax < High[0])
         {
-            info("Nowe frame Max " + DoubleToString(High[0]));
+            //info("Nowe frame Max " + DoubleToString(High[0]));
             frameMax = High[0];
         }
     }
@@ -296,23 +410,43 @@ void checkFW20()
 {
     if ( dayCandle < IN_FrameCandle )
     {
-        if (dayCandle == 3 && isNewBar)
+        if (dayCandle == 3 && isNewBar &&
+            (IN_Patern == PT_ALL || IN_Patern == PT_Szpulka))
         {
-            if (Close[2] > Open[2]  && Close[1] < todayOpen)
+            info("Day Cnd "  + IntegerToString(dayCandle));
+            if ((Close[2] == Open[2] && Close[1] < Low[2]))
             {
-                info("Sprzedajemy Candle " + IntegerToString(dayCandle));
+                //info("Sprzedajemy Candle " + IntegerToString(dayCandle));
                 newSell();
             }
-
-            if (Close[2] < Open[2]  && Close[1] > todayOpen)
+            else if  (Close[2] == Open[2] && Close[1] > High[2])
             {
                 info("Kupujemy Candle " + IntegerToString(dayCandle));
-                newSell();
+                newBuy();
             }
         }
-    }
 
-    if ( dayCandle > IN_FrameCandle )
+/*
+        if (dayCandle == 3 && isNewBar)
+        {
+            if ((Close[2] > Open[2]  && Close[1] <  Low[2]) ||
+                (Close[2] > Open[2]  && Close[1] < todayOpen && High[1] < High[2] && Low[0] < Low[1]) ||
+                (Close[2] == Open[2] && Close[1] < Low[2]))
+            {
+                //info("Sprzedajemy Candle " + IntegerToString(dayCandle));
+                newSell();
+            }
+            else if ((Close[2] < Open[2]  && Close[1] > todayOpen && Low[0] > Low[2] && High[0] > High[1]) ||
+                (Close[2] == Open[2] && Close[1] > High[2]))
+            {
+                //info("Kupujemy Candle " + IntegerToString(dayCandle));
+                newBuy();
+            }
+        }
+*/
+    }
+/*
+    if ( dayCandle >= IN_FrameCandle )
     {
         if (Bid >= frameMax + 1)
         {
@@ -325,6 +459,7 @@ void checkFW20()
             newSell();
         }
     }
+*/
 }
 
 //+------------------------------------------------------------------+
@@ -355,16 +490,18 @@ void OnTick()
         return;
     }
 
-    if (todayMin == 0 || todayMin > Bid)
+    if (todayMin == 0 || todayMin > Low[0])
     {
         //info("Nowe Min " + DoubleToString(Bid));
-        todayMin = Bid;
+        todayMin = Low[0];
+        checkSL();
     }
 
-    if (todayMax == 0 || todayMax < Ask)
+    if (todayMax == 0 || todayMax < High[0])
     {
         //info("Nowe Max " + DoubleToString(Ask));
-        todayMax = Ask;
+        todayMax = High[0];
+        checkSL();
     }
 
     // Numer swieczki
@@ -373,7 +510,12 @@ void OnTick()
         prevTime = Time[0];
         dayCandle++;
         isNewBar = true;
-//        info("Candle no " +  IntegerToString(dayCandle) + " - " + TimeToString(lastSession, TIME_DATE));
+
+        //if (systemState == ST_OrderOpened)
+        //{
+
+        //}
+//       info("Candle no " +  IntegerToString(dayCandle) + " - " + TimeToString(lastSession, TIME_DATE));
     }
     else
     {
